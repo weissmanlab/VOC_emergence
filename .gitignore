@@ -4,6 +4,9 @@ Data/
 .git*
 *.test
 *.nb
+out*
+log*
+lineage*
 
 
 *params.txt
