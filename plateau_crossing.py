@@ -76,11 +76,16 @@ class population:
                             help="seed for random number generator")
         parser.add_argument("--lineage", action='store_true', default=True,
                             help="keep track of lineage. Recomend run = 1 and plot out.")
+        parser.add_argument("--accumulative", action='store_true', default=False,
+                            help="Each mutation has the same selection effect: s/k.")
         parser.add_argument('--plot', action='store_true', default=True,
                             help="plot trajectories (and lineages)")
 
         # Pack all params into self.args.
         self.args = parser.parse_args()
+        # Frequently use params
+        k = self.args.k
+        s = self.args.s
         # Record important params
         with open(self.args.out + 'params.txt', 'w') as outfile:
             print("\n".join(["N = {:.3g}", "poptype = {}", "mu = {}", "r = {}", "s = {}",
@@ -103,11 +108,11 @@ class population:
 
         # Generate genotypes: -1 as wildtype, 1 as mutant in a site.
         self.genotypes = np.asarray(
-            list(it.product((-1, 1), repeat=self.args.k)))
+            list(it.product((-1, 1), repeat=k)))
         # Sort the genotypes, so that the last one is full mutant
         self.genotypes = self.genotypes[np.argsort(self.genotypes.sum(axis=1))]
         # Genotype dimension
-        self.dms = pow(2, self.args.k)
+        self.dms = pow(2, k)
 
         # form mutation matrix: m_i,j as mutation from i to j.
         self.mutmat = np.zeros((self.dms, self.dms))
@@ -123,7 +128,12 @@ class population:
 
         # Form fitness array: s is the breeding advantage.
         self.fit_genotype = np.ones(self.dms)
-        self.fit_genotype[-1] += self.args.s
+        self.fit_genotype[-1] += s
+        if self.args.accumulative:
+            # Each mutations has s/k increase in fitness.
+            for i in np.arange(1, k):
+                self.fit_genotype[k*(i-1)+1:k*i+1] += s/k
+        # print(self.fit_genotype)
 
         # Initial random generator.
         np.random.seed(self.args.seed)
@@ -131,6 +141,8 @@ class population:
         self.outfile = open(self.args.out + "out.txt", 'w')
         self.trafile = open(self.args.out + "trajectory.txt", 'w')
         self.logfile = open(self.args.out + "log.txt", 'w')
+        if self.args.lineage:
+            self.lineagefile = open(self.args.out + "lineage.txt", 'w')
 
     def initpop(self):
         '''
@@ -147,11 +159,11 @@ class population:
         if self.args.lineage:
             self.lincount = 0
             self.lindel = 0
+            self.voct = np.array([])
             # indicator is 1 when a new lineage is occur.
             # Delete the last lineage record after selection, to avoid record twice in the same gen.
             self.lineageindicator = False
             self.lineagearray = []
-            self.lineagefile = open(self.args.out + "lineage.txt", 'w')
 
     def mutation(self):
         '''
@@ -181,12 +193,12 @@ class population:
         if diff > 0:
             self.lincount += 1
             pos = len(self.lineagearray)
-            self.lineagearray.append([])
-            self.lineagearray[pos].append(self.t)
+            self.lineagearray.append(np.array([], dtype=int))
+            self.lineagearray[pos] = np.append(self.lineagearray[pos], self.t)
             self.lineageindicator = True
             # It should be deleted after selection.
             # Use indicator to delete it.
-            self.lineagearray[pos].append(diff)
+            self.lineagearray[pos] = np.append(self.lineagearray[pos], diff)
 
     def recombination(self):
         '''
@@ -208,22 +220,21 @@ class population:
         '''
         Evolution of designed population.
         '''
-        for run in np.arange(self.args.runs):
+        for self.run in np.arange(self.args.runs):
             # Initial population
             self.initpop()
             for self.t in np.arange(self.args.tmax):
                 # update mutant counts
                 self.generation()
-                self.check(run, self.t)
+                self.check()
 
                 if self.t % self.args.tstep == 0:
-                    self.output(run, self.num_genotype, self.trafile)
+                    self.output(self.num_genotype, self.trafile)
                 # Consider full mutant is occupying the population
-                if self.freq_genotype[-1] > 1/5:
-                    print(self.t, file=self.outfile)
-                    self.output(run, self.num_genotype, self.trafile)
+                if len(self.voct) > 10 or self.freq_genotype[-1] > 1/5:
+                    self.output(self.num_genotype, self.trafile)
                     if self.args.lineage:
-                        self.VOCoutput(run)
+                        self.VOCoutput()
                     break
 
         self.trafile.flush()
@@ -235,7 +246,7 @@ class population:
 
         if self.args.plot == True:
             # Plot wt and mutants
-            self.plot("trajectory.txt", 0)
+            self.trajplot("trajectory.txt", 0)
             if self.args.lineage:
                 self.lineagefile.flush()
                 self.lineagefile.close()
@@ -246,6 +257,10 @@ class population:
             plt.show()
 
     def generation(self):
+        '''
+        Update frequency and genotype counts. 
+        Update lineage array and VOC records.
+        '''
         self.mutation()
         self.recombination()
         self.selection()
@@ -263,10 +278,10 @@ class population:
             if totpremut > 0:
                 newmut = sampling(
                     totmut, prevmut/totpremut, eps=1/self.args.N)
-
                 # Delete the new added mutant number, to avoid double record.
                 if self.lineageindicator:
-                    del(self.lineagearray[-1][-1])
+                    self.lineagearray[-1] = np.delete(
+                        self.lineagearray[-1], -1)
                     self.lineageindicator = False
                 # Update lineagearray
                 deleted = 0
@@ -276,60 +291,84 @@ class population:
                         self.lindel += 1
                         deleted += 1
                     else:
-                        self.lineagearray[ind-deleted].append(int(numut))
+                        self.lineagearray[ind-deleted] = np.append(
+                            self.lineagearray[ind-deleted], int(numut))
+                # Update the recording of vocs
+                self.VOCt()
 
-    def VOCoutput(self, run):
+    def VOCt(self):
+        '''
+        Calcultate the time of VOC occurance (freq > 1/s).
+        '''
+        self.voct = np.array([])
+        # check every lineage
+        for lineage in self.lineagearray:
+            # if it is a voc
+            pos = np.argwhere(lineage[1:] > 1/self.args.s)
+            if len(pos) > 0:
+                t0 = lineage[0]
+                t0 += pos[0][0]
+                # record the time when it becomes a voc
+                self.voct = np.append(self.voct, int(t0))
+
+
+    def VOCoutput(self):
         '''
         Output VOC data.
         Each line is a lineage. First number is the time of occurance.
         '''
-        print('run = {}'.format(run), file=self.lineagefile)
+        # output every lineage
+        print('run = {}'.format(self.run), file=self.lineagefile)
         for lineage in self.lineagearray:
             print(','.join(str(lin) for lin in lineage), file=self.lineagefile)
+        # calculate the time difference of emerging vocs.
+        self.voctext = ""
+        if len(self.voct) >= 2:
+            self.voct = np.sort(self.voct).astype(int)
+            t0 = self.voct[:-1]
+            t1 = self.voct[1:]
+            # only output 10 vocs at max
+            voccount = 10
+            for s in (np.array(t1) - np.array(t0)):
+                self.voctext += str(s) + ","
+                voccount -= 1
+                if voccount <= 0:
+                    break
+            print('run = {}'.format(self.run), file=self.outfile)
+            print(str(self.voct[0])+","+self.voctext, file=self.outfile)
 
     def VOCplot(self):
         '''
-        Plot VOCs.
+        Plot VOCs. Only plot the last run.
         '''
-        voct = []
+
         for lineage in self.lineagearray:
             # time appear
             tAppear = lineage[0]
             # lineage count in every generation
             y = lineage[1:]
-            # full time series
-            tott = len(y)
-            x = [tAppear+i for i in range(tott)]
-            plt.plot(x, y, 'o-')
-            # Record the VOC occurance
-            voc = [n for n in lineage[1:] if n >= int(1/self.args.s)]
-            if len(voc) > 0:
-                voct.append(lineage[0])
-        voctext = "Delta t: "
-        if len(voct) >= 2:
-            t0 = voct[:-1]
-            t1 = voct[1:]
-            # only output 10 vocs at max 
-            voccount = 10
-            for s in (np.array(t1) - np.array(t0)):
-                voctext += str(s) + ", "
-                voccount -= 1
-                if voccount <= 0:
-                    break
+            # if it is a voc in the future
+            if len(np.argwhere(y > 1/self.args.s)) > 0:
+                # full time series
+                tott = len(y)
+                x = [tAppear+i for i in range(tott)]
+                plt.plot(x, y, 'o-')
+        # output delta t
+        if len(self.voct) >= 2:
             ymax = np.max(self.nlist)
-            plt.text(0, ymax/1.5, voctext, fontsize='large')
+            plt.text(0, ymax/1.5, "Delta t: " + self.voctext, fontsize='large')
 
-    def output(self, run, data, filepath):
+    def output(self, data, filepath):
         '''
         Output data.
         '''
         if self.t == 0:
-            print('run = {}'.format(run), file=filepath)
+            print('run = {}'.format(self.run), file=filepath)
         # lieagefile output differently: it does not need to output current time
         print(self.t, file=filepath, end=",")
         print(','.join(str(n) for n in data), file=filepath)
 
-    def plot(self, filename, pos=-1):
+    def trajplot(self, filename, pos=-1):
         '''
         Plot mutants.
         pos -- Index of plot data. Output full line when equals 0.
@@ -337,31 +376,32 @@ class population:
         plotfile = open(filename, 'r')
         x = np.array([])
         y = np.array([])
+        plotindex = self.run + 1
+        # get to the data of the final run
         while True:
             line = plotfile.readline()
-            # Plot out, when starts with 'run' (new run), or line is empty (end of file).
-            if len(line) == 0 or line[0] == "r":
-                # If it is not the first line.
-                if len(y) != 0:
-                    # y is 2d array. Each row is a traj
-                    y = np.stack(y, axis=-1)
-                    if pos != 0:
-                        plt.plot(x, y[pos], 'o-')
-                    else:
-                        for traj in y:
-                            plt.plot(x, traj, linestyle="-")
-                # If reaches the end of file
-                if len(line) == 0:
-                    break
-                # New run
-                x = np.array([])
-                y = np.array([])
-                continue
-
+            if line[0] == "r":
+                plotindex -= 1
+            if plotindex == 0:
+                break
+        # read data
+        while True:
+            line = plotfile.readline()
+            # if it reaches the end
+            if len(line) == 0:
+                # y is 2d array. Each row is a traj
+                y = np.stack(y, axis=-1)
+                # plot a specific traj
+                if pos != 0:
+                    plt.plot(x, y[pos], 'o-')
+                # plot all trajs
+                else:
+                    for traj in y:
+                        plt.plot(x, traj, linestyle="-")
+                break
             # Omit the newline and commas.
             lineitems = line.split('\n')[0].split(',')
             x = np.append(x, int(lineitems[0]))
-            # All columns
             lineint = np.array([int(i) for i in lineitems])
             if len(y) == 0:
                 # 0.0001 is to ensure log function is valid
@@ -378,21 +418,21 @@ class population:
         expmut = np.exp(self.args.s*x)
         plt.plot(x, expmut, color='black', markersize=0, linestyle='-')
 
-    def check(self, run, t):
-        if t == 0:
+    def check(self):
+        if self.t == 0:
             return True
         status = 0
         if self.num_genotype[-1] > 0 and np.sum(self.prvs_gen[-self.args.k-1:]) == 0:
             print("Warning: full mutant appear out of nothing at run = {}, t={}.".format(
-                run, t), file=self.logfile)
+                self.run, self.t), file=self.logfile)
             status = 1
         if np.abs(np.sum(self.freq_genotype)-1) > 1e-6 or np.any(self.freq_genotype < 0) or np.any(self.freq_genotype > 1):
             print("Warning: improper genotype frequencies run = {}, t={}.".format(
-                run, t), file=self.logfile)
+                self.run, self.t), file=self.logfile)
             status = 2
         if np.any(np.logical_and(0 < self.freq_genotype, self.freq_genotype < 1/self.args.N)):
             print("Warning: small probability occurs run = {}, t={}.".format(
-                run, t), file=self.logfile)
+                self.run, self.t), file=self.logfile)
             status = 3
         if status > 0:
             print("Previous generation: ", self.prvs_gen,
