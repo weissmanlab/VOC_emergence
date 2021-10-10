@@ -3,15 +3,16 @@ Backup/
 Data/
 .git*
 *.test
-*.nb
 out*
 log*
 lineage*
 
 
-*params.txt
-*trajectory.txt
-*warnings.log
+*lng
+*.log
+*.traj
+*.out
+*.params
 
 
 # Byte-compiled / optimized / DLL files

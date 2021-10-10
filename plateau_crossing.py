@@ -3,6 +3,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import argparse
 import itertools as it
+import time
 
 
 def mendel_prob(x, y, z):
@@ -74,20 +75,27 @@ class population:
                             help="record the population state every tstep generations")
         parser.add_argument("--seed", type=int, default=None,
                             help="seed for random number generator")
-        parser.add_argument("--lineage", action='store_true', default=True,
+        # Options
+        parser.add_argument("--lineage", action='store_true', default=False,
                             help="keep track of lineage. Recomend run = 1 and plot out.")
         parser.add_argument("--accumulative", action='store_true', default=False,
                             help="Each mutation has the same selection effect: s/k.")
-        parser.add_argument('--plot', action='store_true', default=True,
+        parser.add_argument('--plot', action='store_true', default=False,
                             help="plot trajectories (and lineages)")
+        parser.add_argument('--log', action='store_true', default=False,
+                            help="check for valid frequencies and number of genotypes. output to .log file.")
 
         # Pack all params into self.args.
         self.args = parser.parse_args()
+        self.args.out += "K{}".format(self.args.k)
+        self.args.out += "M{:1.0E}".format(self.args.mut)
+        if self.args.accumulative:
+            self.args.out += "A"
         # Frequently use params
         k = self.args.k
         s = self.args.s
         # Record important params
-        with open(self.args.out + 'params.txt', 'w') as outfile:
+        with open(self.args.out + '.params', 'w') as outfile:
             print("\n".join(["N = {:.3g}", "poptype = {}", "mu = {}", "r = {}", "s = {}",
                              "k = {}", "g = {}", "tstep = {}", "seed = {}"])
                   .format(self.args.N, self.args.poptype, self.args.mut, self.args.rec, self.args.s,
@@ -138,11 +146,12 @@ class population:
         # Initial random generator.
         np.random.seed(self.args.seed)
         # Open files.
-        self.outfile = open(self.args.out + "out.txt", 'w')
-        self.trafile = open(self.args.out + "trajectory.txt", 'w')
-        self.logfile = open(self.args.out + "log.txt", 'w')
+        self.outfile = open(self.args.out + ".out", 'w')
+        self.trafile = open(self.args.out + ".traj", 'w')
+        if self.args.log:
+            self.logfile = open(self.args.out + ".log", 'w')
         if self.args.lineage:
-            self.lineagefile = open(self.args.out + "lineage.txt", 'w')
+            self.lineagefile = open(self.args.out + ".lng", 'w')
 
     def initpop(self):
         '''
@@ -186,7 +195,7 @@ class population:
         self.prvs_gen = self.num_genotype
         totpop = np.sum(self.num_genotype)
         self.num_genotype = sampling(
-            totpop, self.freq_genotype, eps=1/self.args.N)
+            totpop, self.freq_genotype, eps=1/self.nlist[self.t])
         self.freq_genotype = self.num_genotype / totpop
         # Compare prev and new mutant.
         diff = int(self.num_genotype[-1] > self.prvs_gen[-1])
@@ -226,12 +235,13 @@ class population:
             for self.t in np.arange(self.args.tmax):
                 # update mutant counts
                 self.generation()
-                self.check()
+                if self.args.log:
+                    self.check()
 
                 if self.t % self.args.tstep == 0:
                     self.output(self.num_genotype, self.trafile)
                 # Consider full mutant is occupying the population
-                if len(self.voct) > 10 or self.freq_genotype[-1] > 1/5:
+                if self.freq_genotype[-1] > 1/5 or (self.args.lineage and len(self.voct) > 10):
                     self.output(self.num_genotype, self.trafile)
                     if self.args.lineage:
                         self.VOCoutput()
@@ -241,12 +251,13 @@ class population:
         self.trafile.close()
         self.outfile.flush()
         self.outfile.close()
-        self.logfile.flush()
-        self.logfile.close()
+        if self.args.log:
+            self.logfile.flush()
+            self.logfile.close()
 
         if self.args.plot == True:
             # Plot wt and mutants
-            self.trajplot("trajectory.txt", 0)
+            self.trajplot(self.args.out + ".traj", 0)
             if self.args.lineage:
                 self.lineagefile.flush()
                 self.lineagefile.close()
@@ -277,7 +288,7 @@ class population:
             # If there are mutants
             if totpremut > 0:
                 newmut = sampling(
-                    totmut, prevmut/totpremut, eps=1/self.args.N)
+                    totmut, prevmut/totpremut, eps=1/self.nlist[self.t])
                 # Delete the new added mutant number, to avoid double record.
                 if self.lineageindicator:
                     self.lineagearray[-1] = np.delete(
@@ -311,7 +322,6 @@ class population:
                 # record the time when it becomes a voc
                 self.voct = np.append(self.voct, int(t0))
 
-
     def VOCoutput(self):
         '''
         Output VOC data.
@@ -334,7 +344,6 @@ class population:
                 voccount -= 1
                 if voccount <= 0:
                     break
-            print('run = {}'.format(self.run), file=self.outfile)
             print(str(self.voct[0])+","+self.voctext, file=self.outfile)
 
     def VOCplot(self):
@@ -430,7 +439,7 @@ class population:
             print("Warning: improper genotype frequencies run = {}, t={}.".format(
                 self.run, self.t), file=self.logfile)
             status = 2
-        if np.any(np.logical_and(0 < self.freq_genotype, self.freq_genotype < 1/self.args.N)):
+        if np.any(np.logical_and(0 < self.freq_genotype, self.freq_genotype < 1/self.nlist[self.t])):
             print("Warning: small probability occurs run = {}, t={}.".format(
                 self.run, self.t), file=self.logfile)
             status = 3
@@ -446,5 +455,8 @@ class population:
 
 
 if __name__ == "__main__":
+    tik = time.time()
     pop = population()
     pop.evolve()
+    tok = time.time()
+    print("Finished {}! Used time: {}s".format(pop.args.out[2:], tok-tik))
