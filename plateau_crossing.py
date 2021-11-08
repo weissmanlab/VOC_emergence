@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 import argparse
 import itertools as it
 import time
+import os
 
 
 def mendel_prob(x, y, z):
@@ -65,7 +66,7 @@ class population:
                             help="population type: C (Constant), E (Exponential), or F (Read from file n.csv)")
         parser.add_argument("--runs", type=int, default=1,
                             help="repeat time for simulation")
-        parser.add_argument("--out", default='./',
+        parser.add_argument("--outpath", default='./data/',
                             help="prefix for output files")
         parser.add_argument("--g", type=float, default=1,
                             help="growth rate for exponential population")
@@ -87,19 +88,21 @@ class population:
 
         # Pack all params into self.args.
         self.args = parser.parse_args()
-        self.args.out += "K{}".format(self.args.k)
-        self.args.out += "M{:1.0E}".format(self.args.mut)
+        # Create data folder
+        if not os.path.exists(self.args.outpath):
+            os.makedirs(self.args.outpath)
+        # create file names
+        self.args.outpath += "K{}".format(self.args.k)
+        self.args.outpath += self.args.poptype
+        self.args.outpath += "N"
+        if self.args.poptype != 'F':
+            self.args.outpath += "{:1.1E}".format(self.args.N)
+        self.args.outpath += "M{:1.0E}".format(self.args.mut)
         if self.args.accumulative:
-            self.args.out += "A"
+            self.args.outpath += "A"
         # Frequently use params
         k = self.args.k
         s = self.args.s
-        # Record important params
-        with open(self.args.out + '.params', 'w') as outfile:
-            print("\n".join(["N = {:.3g}", "poptype = {}", "mu = {}", "r = {}", "s = {}",
-                             "k = {}", "g = {}", "tstep = {}", "seed = {}"])
-                  .format(self.args.N, self.args.poptype, self.args.mut, self.args.rec, self.args.s,
-                          self.args.k, self.args.g, self.args.tstep, self.args.seed), file=outfile)
 
         # Form the population list nlist by population type. (constant, exponential or from file).
         if self.args.poptype == 'F':
@@ -146,12 +149,18 @@ class population:
         # Initial random generator.
         np.random.seed(self.args.seed)
         # Open files.
-        self.outfile = open(self.args.out + ".out", 'w')
-        self.trafile = open(self.args.out + ".traj", 'w')
+        self.outfile = open(self.args.outpath + ".out", 'w')
+        self.trafile = open(self.args.outpath + ".traj", 'w')
         if self.args.log:
-            self.logfile = open(self.args.out + ".log", 'w')
+            self.logfile = open(self.args.outpath + ".log", 'w')
         if self.args.lineage:
-            self.lineagefile = open(self.args.out + ".lng", 'w')
+            self.lineagefile = open(self.args.outpath + ".lng", 'w')
+        # Record important params
+        with open(self.args.outpath + '.params', 'w') as outfile:
+            print("\n".join(["N = {:.3g}", "poptype = {}", "mu = {}", "r = {}", "s = {}",
+                             "k = {}", "g = {}", "tstep = {}", "seed = {}"])
+                  .format(self.args.N, self.args.poptype, self.args.mut, self.args.rec, self.args.s,
+                          self.args.k, self.args.g, self.args.tstep, self.args.seed), file=outfile)
 
     def initpop(self):
         '''
@@ -257,7 +266,7 @@ class population:
 
         if self.args.plot == True:
             # Plot wt and mutants
-            self.trajplot(self.args.out + ".traj", 0)
+            self.trajplot(self.args.outpath + ".traj", 0)
             if self.args.lineage:
                 self.lineagefile.flush()
                 self.lineagefile.close()
@@ -332,18 +341,13 @@ class population:
         for lineage in self.lineagearray:
             print(','.join(str(lin) for lin in lineage), file=self.lineagefile)
         # calculate the time difference of emerging vocs.
-        self.voctext = ""
         if len(self.voct) >= 2:
             self.voct = np.sort(self.voct).astype(int)
             t0 = self.voct[:-1]
             t1 = self.voct[1:]
             # only output 10 vocs at max
-            voccount = 10
-            for s in (np.array(t1) - np.array(t0)):
-                self.voctext += str(s) + ","
-                voccount -= 1
-                if voccount <= 0:
-                    break
+            vocarray = (np.array(t1) - np.array(t0))[0:10]
+            self.voctext = ",".join([str(i) for i in vocarray])
             print(str(self.voct[0])+","+self.voctext, file=self.outfile)
 
     def VOCplot(self):
@@ -459,4 +463,4 @@ if __name__ == "__main__":
     pop = population()
     pop.evolve()
     tok = time.time()
-    print("Finished {}! Used time: {}s".format(pop.args.out[2:], tok-tik))
+    print("Finished {}! Used time: {}s".format(pop.args.outpath[2:], tok-tik))
