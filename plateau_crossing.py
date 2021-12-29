@@ -82,7 +82,7 @@ class Population:
                             default=0, help="frequency of sex")
         parser.add_argument("--s", type=float, default=0.24,
                             help="advantage of triple mutant")
-        parser.add_argument("--k", type=int, default=3,
+        parser.add_argument("--K", type=int, default=3,
                             help="mutations to valley crossing")
         parser.add_argument("--poptype", choices=['C', 'E', 'F'], default='C',
                             help="population type: C (Constant), E (Exponential), or F (Read from file covid.csv)")
@@ -98,8 +98,10 @@ class Population:
                             help="record the population state every tstep generations")
         parser.add_argument("--seed", type=int, default=None,
                             help="seed for random number generator")
-        parser.add_argument("--sampling_method", choices=['multinomial', 'dirichlet'], default='dirichlet',
+        parser.add_argument("--sampling_method", choices=['multinomial', 'dirichlet'], default='multinomial',
                             help="sampling method: multinomial or dirichlet multinomial sampling")
+        parser.add_argument("--k", type=float, default=0.1,
+                            help="overdispersion parameter. used in dirichlet multinomial.")
         # Options
         parser.add_argument("--lineage", action='store_true', default=False,
                             help="keep track of lineage. Recomend run = 1 and plot out.")
@@ -118,7 +120,7 @@ class Population:
             os.makedirs(self.args.outpath)
         # create file names
         # k: genome size
-        self.args.outpath += "K{}".format(self.args.k)
+        self.args.outpath += "K{}".format(self.args.K)
         # population size and type
         self.args.outpath += self.args.poptype
         if self.args.poptype == 'C':
@@ -132,7 +134,7 @@ class Population:
         if self.args.sampling_method == 'multinomial':
             self.args.outpath += "MN"
         elif self.args.sampling_method == 'dirichlet':
-            self.args.outpath += "DM"
+            self.args.outpath += "DM" + 'k' + str(self.args.k)
         if self.args.accumulative:
             self.args.outpath += "A"
         # Frequently use params
@@ -150,11 +152,11 @@ class Population:
 
         # Generate genotypes: -1 as wildtype, 1 as mutant in a site.
         self.genotypes = np.asarray(
-            list(it.product((-1, 1), repeat=self.args.k)))
+            list(it.product((-1, 1), repeat=self.args.K)))
         # Sort the genotypes, so that the last one is full mutant
         self.genotypes = self.genotypes[np.argsort(self.genotypes.sum(axis=1))]
         # Genotype dimension
-        self.dms = pow(2, self.args.k)
+        self.dms = pow(2, self.args.K)
         # add slot for new lineage.
 
         # form mutation matrix: m_i,j as mutation from i to j.
@@ -172,9 +174,9 @@ class Population:
         self.fit_genotype[-1] += self.args.s
         if self.args.accumulative:
             # Each mutations has s/k increase in fitness.
-            for i in np.arange(1, self.args.k):
-                self.fit_genotype[self.args.k *
-                                  (i-1)+1:self.args.k*i+1] += self.args.s/self.args.k
+            for i in np.arange(1, self.args.K):
+                self.fit_genotype[self.args.K *
+                                  (i-1)+1:self.args.K*i+1] += self.args.s/self.args.K
 
         # sampling methods
         if self.args.sampling_method == 'multinomial':
@@ -200,7 +202,7 @@ class Population:
             print("\n".join(["N = {:.3g}", "poptype = {}", "mu = {}", "r = {}", "s = {}",
                              "k = {}", "g = {}", "tstep = {}", "seed = {}"])
                   .format(self.args.N, self.args.poptype, self.args.mut, self.args.rec, self.args.s,
-                          self.args.k, self.args.g, self.args.tstep, self.args.seed), file=outfile)
+                          self.args.K, self.args.g, self.args.tstep, self.args.seed), file=outfile)
 
     def init_pop(self):
         '''
@@ -239,7 +241,7 @@ class Population:
             return [0, 0]
         # The first part is mutating to certain genotype, the latter one is mutating out.
         mutate_in = self.freq_genotype @ self.mutmat
-        mutate_out = self.args.mut * self.args.k * self.freq_genotype
+        mutate_out = self.args.mut * self.args.K * self.freq_genotype
         self.freq_genotype += mutate_in - mutate_out
         return [mutate_in[-1], mutate_out[-1]]
 
@@ -314,8 +316,12 @@ class Population:
         self.recombination()
         self.prvs_gen = self.num_genotype
         # new sampling
+        scalar = 1
+        if self.args.sampling_method == "dirichlet":
+            # if mutant is present
+            scalar = self.args.k*self.nlist[self.t]
         self.num_genotype = self.sampling(
-            self.nlist[self.t], self.freq_genotype)
+            self.nlist[self.t], self.freq_genotype, scalar)
         self.freq_genotype = self.num_genotype / self.nlist[self.t]
 
     def generation_lineage(self):
@@ -345,12 +351,7 @@ class Population:
         scalar = 1
         if self.args.sampling_method == "dirichlet":
             # if mutant is present
-            r0 = 2.8
-            k = 0.1
-            n = self.nlist[self.t]
-            if self.num_lineage > 0:
-                r0 *= 1.38
-            scalar = (-r0+np.sqrt(4*k*k*n+4*k*n*r0+r0*r0))/(2*(k+r0))
+            scalar = self.args.k*self.nlist[self.t]
         self.prvs_gen = self.num_genotype
         # sampling process
         self.num_genotype_lineage = self.sampling(
@@ -564,7 +565,7 @@ class Population:
             frequency = self.freq_genotype_lineage
         else:
             frequency = self.freq_genotype
-        if self.num_genotype[-1] > 0 and np.sum(self.prvs_gen[-self.args.k-1:]) == 0:
+        if self.num_genotype[-1] > 0 and np.sum(self.prvs_gen[-self.args.K-1:]) == 0:
             print("Warning: full mutant appear out of nothing at run = {}, t={}.".format(
                 self.run, self.t), file=self.logfile)
             status = 1

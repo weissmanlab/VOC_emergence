@@ -269,11 +269,11 @@ class Population:
                 if self.args.log:
                     self.check()
                 if self.t % self.args.tstep == 0:
-                    self.output(self.num_genotype[:-1], self.trajfile)
+                    self.output(self.num_genotype, self.trajfile)
                 # Consider full mutant is occupying the population
                 # print(self.t, self.num_voc)
                 if self.freq_genotype[-1] > 1/5 or (self.args.lineage and self.num_voc >= 10):
-                    self.output(self.num_genotype[:-1], self.trajfile)
+                    self.output(self.num_genotype, self.trajfile)
                     break
             # record max number of lineages
             if self.args.lineage:
