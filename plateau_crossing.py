@@ -76,7 +76,7 @@ class Population:
     def __init__(self):
         # Get the parameters from the command line.
         parser = argparse.ArgumentParser()
-        parser.add_argument("--N", type=int, default=10000000,
+        parser.add_argument("--N", type=int, default=100000,
                             help="Population size")
         parser.add_argument("--mut", type=float,
                             default=0, help="mutation rate")
@@ -84,17 +84,17 @@ class Population:
                             default=0, help="frequency of sex")
         parser.add_argument("--s", type=float, default=1,
                             help="advantage of triple mutant")
-        parser.add_argument("--K", type=int, default=10,
+        parser.add_argument("--K", type=int, default=6,
                             help="mutations to valley crossing")
         parser.add_argument("--poptype", choices=['C', 'E', 'F'], default='C',
                             help="population type: C (Constant), E (Exponential), or F (Read from file covid.csv)")
-        parser.add_argument("--runs", type=int, default=2,
+        parser.add_argument("--runs", type=int, default=10,
                             help="repeat time for simulation")
         parser.add_argument("--outpath", default='./data/',
                             help="prefix for output files")
         parser.add_argument("--g", type=float, default=1,
                             help="growth rate (1+g) for exponential population. ")
-        parser.add_argument("--tmax", type=int, default=100,
+        parser.add_argument("--tmax", type=int, default=200,
                             help="max number of generations to run for")
         parser.add_argument("--tstep", type=int, default=1,
                             help="record the population state every tstep generations")
@@ -109,11 +109,11 @@ class Population:
                             help="keep track of lineage. Recomend run = 1 and plot out.")
         parser.add_argument("--ici", action='store_true', default=True,
                             help="simulation of the immunocompromised patients.")
-        parser.add_argument("--pf_ici", type=float, default=1e-7,
+        parser.add_argument("--pf_ici", type=float, default=1e-5,
                             help="probability of immunocompromised patients (who produce VOCs).")
         parser.add_argument("--mu_ici", type=float, default=0.01,
                             help="rate of within-host fixation.")
-        parser.add_argument("--accumulative", action='store_true', default=False,
+        parser.add_argument("--accumulative", action='store_true', default=True,
                             help="Each mutation has the same selection effect: s/k.")
         parser.add_argument('--plot', choices=['none', 'genotype', 'lineage', 'voc'], default='none',
                             help="plot trajectories of all genotypes (and lineages).\
@@ -198,49 +198,6 @@ class Population:
                 print("\n".join(["pf = {}", "mu_ici = {}"]).format(
                     self.args.pf_ici, self.args.mu_ici), file=outfile)
 
-    def init_pop(self):
-        '''
-        Initial/Reset frequencies, number of genotypes and lineages.
-        '''
-        # Number of individuals of each genotype. Initial population: all wildtype.
-        self.num_genotype = np.zeros(self.dms).astype(np.uint64)
-        self.num_genotype[0] = self.nlist[0]
-        self.prvs_gen = self.num_genotype
-        # Frequency of genotyes. This is also the selection probability of genotypes in sampling.
-        self.freq_genotype = np.zeros(self.dms).astype(np.float64)
-        self.freq_genotype[0] = 1.0
-
-        # Initial lineage tracking
-        if self.args.lineage:
-            # max voc and voc threshold
-            self.voc_max = 5
-            self.voc_th = 1/self.args.s
-            # number and frequency of lineages
-            self.num_genotype_lineage = np.zeros(self.dms).astype(np.uint64)
-            self.num_genotype_lineage[0] = self.nlist[0]
-            self.freq_genotype_lineage = np.zeros(self.dms).astype(np.float64)
-            self.freq_genotype_lineage[0] = 1.0
-            # number of lineage
-            self.num_voc = 0
-            self.num_lineage = 0
-            # lineage array and time of occurance
-            self.num_lineage_array = np.empty((0, 1)).astype(np.uint64)
-            self.lineage_t = np.array([]).astype(np.uint16)
-        # initial ici tracking
-        if self.args.ici:
-            # number ici of the mutants. NOT including WT
-            self.num_genotype_ici = np.zeros(self.args.K).astype(np.uint64)
-            # Time to accumulate one more muatation. NOT including full mutant.
-            self.ici_t = [np.empty([1, 0], dtype=np.uint16)
-                          for i in range(self.args.K)]
-            # index to split genotypes into single mutant, double mutant...
-            self.ici_split_pos = np.cumsum(
-                [comb(self.args.K, i).astype(np.int16) for i in np.arange(self.args.K)])
-            # fitness of each ici genotype
-            self.fit_ici = self.fit_genotype[self.ici_split_pos]
-            # ici position in lineage array
-            self.lineage_array_ici_pos = np.empty([0, 0], dtype=np.uint16)
-
     def init_outpath(self):
         '''
         initial output path and filename
@@ -272,6 +229,48 @@ class Population:
         # fitness landscape
         if self.args.accumulative:
             self.args.outpath += "A"
+
+    def init_pop(self):
+        '''
+        Initial/Reset frequencies, number of genotypes and lineages.
+        '''
+        # Number of individuals of each genotype. Initial population: all wildtype.
+        self.num_genotype = np.zeros(self.dms).astype(np.uint64)
+        self.num_genotype[0] = self.nlist[0]
+        self.prvs_gen = self.num_genotype
+        # Frequency of genotyes. This is also the selection probability of genotypes in sampling.
+        self.freq_genotype = np.zeros(self.dms).astype(np.float64)
+        self.freq_genotype[0] = 1.0
+
+        # Initial lineage tracking
+        if self.args.lineage:
+            self.voc_th = 1/self.args.s
+            # number and frequency of lineages
+            self.num_genotype_lineage = np.zeros(self.dms).astype(np.uint64)
+            self.num_genotype_lineage[0] = self.nlist[0]
+            self.freq_genotype_lineage = np.zeros(self.dms).astype(np.float64)
+            self.freq_genotype_lineage[0] = 1.0
+            # number of lineage
+            self.num_voc = 0
+            self.num_lineage = 0
+            # lineage array and time of occurance
+            self.num_lineage_array = np.empty((0, 1)).astype(np.uint64)
+            self.lineage_t = np.array([]).astype(np.uint16)
+        # initial ici tracking
+        if self.args.ici:
+            # number ici of the mutants. NOT including WT
+            self.num_genotype_ici = np.zeros(self.args.K).astype(np.uint64)
+            # Time to accumulate one more muatation. NOT including full mutant.
+            # 1st value: time to mature; 2nd value: source (0-population, 1-prev genotype)
+            self.ici_t = [np.empty([0, 2], dtype=np.uint16)
+                          for i in range(self.args.K)]
+            # index to split genotypes into single mutant, double mutant...
+            self.ici_split_pos = np.cumsum(
+                [comb(self.args.K, i).astype(np.int16) for i in np.arange(self.args.K)])
+            # fitness of each ici genotype
+            self.fit_ici = self.fit_genotype[self.ici_split_pos]
+            # ici position in lineage array
+            self.lineage_array_ici_pos = np.empty([0, 0], dtype=np.uint16)
 
     def mutation(self):
         '''
@@ -341,7 +340,7 @@ class Population:
         if self.t % self.args.tstep == 0:
             self.output_traj()
         # Consider full mutant is occupying the population
-        if self.freq_genotype[-1] > 1/2 or (self.args.lineage and self.num_voc >= self.voc_max):
+        if self.freq_genotype[-1] > 3/4:
             self.output_traj()
             return True
 
@@ -458,9 +457,15 @@ class Population:
         '''
         Sample the ici cases of each genotype.
         '''
-        def add_waiting_time(ici_new, index):
-            new_ici_t = expon.rvs(size=ici_new, scale=1/self.args.mu_ici)
-            self.ici_t[index] = np.append(self.ici_t[index], new_ici_t+self.t)
+        def add_waiting_time(ici_new, index, value):
+            '''
+            add exponential waiting time to ici_t.
+            value = 0  means individuals sampling from the population.
+            value = 1  means individuals coming from previous genotypes.
+            '''
+            new_ici_t = expon.rvs(size=ici_new, scale=1/self.args.mu_ici) + self.t
+            new_ici_t = np.transpose(np.vstack([new_ici_t, np.ones(ici_new)*value]))
+            self.ici_t[index] = np.vstack([self.ici_t[index], new_ici_t])
 
         # Number of indv of each genotype.
         num_genotype_split = np.split(self.num_genotype, self.ici_split_pos)
@@ -472,21 +477,21 @@ class Population:
             ici_new_i = ici_new[i]
             # add waiting time for this genotype
             if ici_new_i > 0:
-                add_waiting_time(ici_new_i, i)
+                add_waiting_time(ici_new_i, i, 0)
             # if there is any ici reaches its waiting time
-            ici_t_cond = (self.ici_t[i] <= self.t)
+            ici_t_cond = (self.ici_t[i][:,0] <= self.t)
             num_ici_new = np.count_nonzero(ici_t_cond)
             if np.any(ici_t_cond):
-                self.ici_t[i] = np.delete(self.ici_t[i], ici_t_cond)
                 # add to next genotype; no wt in num_genotype_ici
                 self.num_genotype_ici[i] += num_ici_new
-                # remove them from the previous genotypes
-                if i > 0:
-                    self.num_genotype_ici[i-1] -= num_ici_new
                 # add waiting time to the accumulate one more mutation
                 if i != self.args.K-1:
-                    add_waiting_time(num_ici_new, i+1)
-
+                    add_waiting_time(num_ici_new, i+1, 1)
+                # remove from the previous genotypes
+                if i > 0:
+                    prev_geno = np.count_nonzero(self.ici_t[i][ici_t_cond, 1])
+                    self.num_genotype_ici[i-1] -= prev_geno
+                self.ici_t[i] = np.delete(self.ici_t[i], ici_t_cond, 0)
         # add array for new voc of ici
         if self.num_genotype_ici[-1] > 0:
             self.add_new_lineage(num_ici_new, scalar=0)
@@ -837,3 +842,5 @@ if __name__ == "__main__":
     pop.evolve()
     tok = time.time()
     print("Finished {}! Used time: {}s".format(pop.args.outpath[2:], tok-tik))
+    df = pd.read_csv(pop.args.outpath[2:]+".traj", sep=",")  
+    print(df.max())
