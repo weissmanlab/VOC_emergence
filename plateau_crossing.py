@@ -76,10 +76,10 @@ class Population:
     def __init__(self):
         # Get the parameters from the command line.
         parser = argparse.ArgumentParser()
-        parser.add_argument("--N", type=int, default=100000,
+        parser.add_argument("--N", type=int, default=10000000,
                             help="Population size")
         parser.add_argument("--mut", type=float,
-                            default=0, help="mutation rate")
+                            default=1e-3, help="mutation rate")
         parser.add_argument("--rec", type=float,
                             default=0, help="frequency of sex")
         parser.add_argument("--s", type=float, default=1,
@@ -109,7 +109,7 @@ class Population:
                             help="keep track of lineage. Recomend run = 1 and plot out.")
         parser.add_argument("--ici", action='store_true', default=True,
                             help="simulation of the immunocompromised patients.")
-        parser.add_argument("--pf_ici", type=float, default=1e-5,
+        parser.add_argument("--pf_ici", type=float, default=1e-7,
                             help="probability of immunocompromised patients (who produce VOCs).")
         parser.add_argument("--mu_ici", type=float, default=0.01,
                             help="rate of within-host fixation.")
@@ -556,6 +556,10 @@ class Population:
         delete_len = ori_len - len(delete_len)
         self.num_lineage_array = np.delete(
             self.num_lineage_array, np.arange(delete_len), axis=1)
+        # if all lineages are dead, maintain the shape.
+        if self.num_lineage_array.shape[1] == 0:
+            num_lin = self.num_lineage_array.shape[0]
+            self.num_lineage_array = np.empty((num_lin, 1)).astype(np.uint64)
 
         # update pos of ici cases and subtract ici cases from array
         if self.args.ici:
@@ -842,5 +846,3 @@ if __name__ == "__main__":
     pop.evolve()
     tok = time.time()
     print("Finished {}! Used time: {}s".format(pop.args.outpath[2:], tok-tik))
-    df = pd.read_csv(pop.args.outpath[2:]+".traj", sep=",")  
-    print(df.max())
