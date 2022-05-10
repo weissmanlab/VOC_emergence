@@ -1,7 +1,7 @@
 Presentation/
 Backup/
 Code/
-data/
+Data/
 .git*
 *.test
 out*

@@ -1,0 +1,13 @@
+N = 1e+07
+poptype = F
+mu = 1e-05
+r = 0
+s = 1.0
+k = 3
+g = 1
+tstep = 1
+seed = None
+fitness accumultive = True
+sampling_method = dirichlet
+diri_k = 0.2
+Lineages: True

@@ -1,0 +1,16 @@
+N = 1e+07
+poptype = F
+mu = 8.7e-06
+r = 0
+s = 0.4
+k = 1
+g = 1
+tstep = 1
+seed = None
+fitness accumultive = False
+sampling_method = dirichlet
+diri_k = 0.2
+Lineages: True
+ICI: True
+pf = 5e-10
+mu_ici = 0.001
